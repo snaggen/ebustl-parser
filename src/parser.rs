@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{num::ParseIntError, str::FromStr};
 
 use nom::{
     self,
@@ -120,6 +120,14 @@ pub fn take_str<'a, C: nom::ToUsize, Error: nom::error::ParseError<&'a [u8]>>(
     }
 }
 
+fn u8_from_str_with_default_if_blank(input: &str, default: u8) -> Result<u8, ParseIntError> {
+    if input.trim().is_empty() {
+        Ok(default)
+    } else {
+        u8::from_str(input)
+    }
+}
+
 fn parse_gsi_block(input: &[u8]) -> IResult<&[u8], GsiBlock> {
     let (input, (codepage, dfc, dsc, cct)) = tuple((
         map_res(take_str(3_u16), u16::from_str),
@@ -154,8 +162,12 @@ fn parse_gsi_block(input: &[u8]) -> IResult<&[u8], GsiBlock> {
     let (input, (tcp, tcf, tnd, dsn, co, pub_, en, ecd, _spare, uda)) = tuple((
         map_res(take(263 - 256 + 1_u16), |data| coding.parse(data)),
         map_res(take(271 - 264 + 1_u16), |data| coding.parse(data)),
-        map_res(take_str(1_u16), u8::from_str),
-        map_res(take_str(1_u16), u8::from_str),
+        map_res(take_str(1_u16), |data| {
+            u8_from_str_with_default_if_blank(data, 1)
+        }),
+        map_res(take_str(1_u16), |data| {
+            u8_from_str_with_default_if_blank(data, 1)
+        }),
         map_res(take(276 - 274 + 1_u16), |data| coding.parse(data)),
         map_res(take(308 - 277 + 1_u16), |data| coding.parse(data)),
         map_res(take(340 - 309 + 1_u16), |data| coding.parse(data)),
