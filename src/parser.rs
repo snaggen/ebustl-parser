@@ -1,14 +1,7 @@
 use std::{num::ParseIntError, str::FromStr};
 
-use nom::{
-    self,
-    bytes::streaming::take,
-    combinator::map_res,
-    error::{ErrorKind, FromExternalError},
-    multi::many1,
-    number::streaming::{be_u8, le_u16},
-    sequence::tuple,
-    InputIter, InputTake,
+use winnow::{
+    self, bytes::streaming::take, combinator::map_res, error::{ErrorKind, FromExternalError}, multi::many1, number::streaming::{be_u8, le_u16}, sequence::tuple, stream::{ParseSlice, Stream, ToUsize},
 };
 use thiserror::Error;
 
@@ -44,7 +37,7 @@ impl From<std::io::Error> for ParseError {
     }
 }
 
-impl<I> nom::error::ParseError<I> for ParseError {
+impl<I> winnow::error::ParseError<I> for ParseError {
     // on one line, we show the error code and the input that caused it
     fn from_error_kind(_: I, kind: ErrorKind) -> Self {
         Self::NomParsingError {
@@ -53,8 +46,8 @@ impl<I> nom::error::ParseError<I> for ParseError {
     }
 
     // if combining multiple errors, we show them one after the other
-    fn append(_: I, kind: ErrorKind, other: Self) -> Self {
-        let message = format!("{:?}:\n{}", kind, other);
+    fn append(self, input: I, kind: ErrorKind) -> Self {
+        let message = format!("{:?}", kind);
         Self::NomParsingError { message }
     }
 
@@ -75,21 +68,21 @@ where
     }
 }
 
-impl<E> From<nom::Err<E>> for ParseError
+impl<E> From<winnow::Err<E>> for ParseError
 where
     E: fmt::Display,
 {
-    fn from(err: nom::Err<E>) -> Self {
+    fn from(err: winnow::Err<E>) -> Self {
         match err {
-            nom::Err::Incomplete(_) => ParseError::Incomplete,
-            nom::Err::Error(e) | nom::Err::Failure(e) => Self::NomParsingError {
+            winnow::Err::Incomplete(_) => ParseError::Incomplete,
+            winnow::Err::Backtrack(e) | winnow::Err::Cut(e) => Self::NomParsingError {
                 message: format!("{}", e),
             },
         }
     }
 }
 
-pub type IResult<I, O> = nom::IResult<I, O, ParseError>;
+pub type IResult<I, O> = winnow::IResult<I, O, ParseError>;
 
 fn parse_stl(input: &[u8]) -> IResult<&[u8], Stl> {
     let (input, gsi) = parse_gsi_block(input)?;
@@ -102,23 +95,27 @@ pub fn parse_stl_from_slice(input: &[u8]) -> Result<Stl, ParseError> {
     Ok(stl)
 }
 
-pub fn take_str<'a, C: nom::ToUsize, Error: nom::error::ParseError<&'a [u8]>>(
+
+pub fn take_str<'a, C: ToUsize, Error: winnow::error::ParseError<&'a [u8]>>(
     count: C,
-) -> impl Fn(&'a [u8]) -> nom::IResult<&'a [u8], &'a str, Error> {
+) -> impl Fn(&'a [u8]) -> winnow::IResult<&'a [u8], &'a str, Error> {
     let c = count.to_usize();
-    move |i: &[u8]| match i.slice_index(c) {
-        Err(i) => Err(nom::Err::Incomplete(i)),
+    eprintln!("Take str {c}");
+    move |i: &[u8]| match i.offset_at(c) {
+        Err(i) => Err(winnow::Err::Incomplete(i)),
         Ok(index) => {
-            let (first, rest) = i.take_split(index);
+            let (first, rest) = i.split_at(index);
             Ok((
-                first,
-                str::from_utf8(rest).map_err(|_err| {
-                    nom::Err::Error(Error::from_error_kind(rest, nom::error::ErrorKind::Fail))
+                rest,
+                str::from_utf8(first).map_err(|err| {
+                    eprintln!("Utf8 Error: {err}");
+                    winnow::Err::Backtrack(Error::from_error_kind(rest, winnow::error::ErrorKind::Fail))
                 })?,
             ))
         }
     }
 }
+
 
 fn u8_from_str_with_default_if_blank(input: &str, default: u8) -> Result<u8, ParseIntError> {
     if input.trim().is_empty() {
@@ -135,8 +132,8 @@ fn parse_gsi_block(input: &[u8]) -> IResult<&[u8], GsiBlock> {
         map_res(be_u8, DisplayStandardCode::parse),
         map_res(take(13 - 12 + 1_u16), CharacterCodeTable::parse),
     ))(input)?;
-    let cpn = CodePageNumber::from_u16(codepage).map_err(nom::Err::Error)?;
-    let coding = CodePageDecoder::new(codepage).map_err(nom::Err::Error)?;
+    let cpn = CodePageNumber::from_u16(codepage).map_err(winnow::Err::Backtrack)?;
+    let coding = CodePageDecoder::new(codepage).map_err(winnow::Err::Backtrack)?;
 
     let (input, (lc, opt, oet, tpt, tet, tn, tcd, slr, cd, rd, rn, tnb, tns, tng, mnc, mnr, tcs)) =
         tuple((
@@ -221,9 +218,9 @@ fn parse_time(input: &[u8]) -> IResult<&[u8], Time> {
 fn parse_tti_block(cct: CharacterCodeTable, input: &[u8]) -> IResult<&[u8], TtiBlock> {
     //Needed to handle the many1 operator, that expects an error when done.
     if input.is_empty() {
-        return Err(nom::Err::Error(nom::error::ParseError::from_error_kind(
+        return Err(winnow::Err::Backtrack(winnow::error::ParseError::from_error_kind(
             input,
-            nom::error::ErrorKind::Eof,
+            winnow::error::ErrorKind::Eof,
         )));
     }
     let (input, (sgn, sn, ebn, cs, tci, tco, vp, jc, cf, tf)) = tuple((
@@ -258,7 +255,7 @@ fn parse_tti_block(cct: CharacterCodeTable, input: &[u8]) -> IResult<&[u8], TtiB
 
 #[cfg(test)]
 mod tests {
-    use nom::Needed;
+    use winnow::error::Needed;
 
     use super::*;
 
@@ -282,7 +279,7 @@ mod tests {
         );
         assert_eq!(
             parse_time(incomplete),
-            Err(nom::Err::Incomplete(Needed::new(1)))
+            Err(winnow::Err::Incomplete(Needed::new(1)))
         );
     }
     //Comented out since the test file is propritary
