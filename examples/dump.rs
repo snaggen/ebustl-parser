@@ -1,6 +1,4 @@
-extern crate ebustl;
-
-use ebustl::parse_stl_from_file;
+use ebustl_parser::parse_stl_from_file;
 use std::env;
 use std::process;
 
@@ -14,6 +12,6 @@ fn main() {
         process::exit(1);
     }
     let input_filename = env::args().nth(1).unwrap();
-    let stl = parse_stl_from_file(&input_filename).map_err(|err| err.to_string());
+    let stl = parse_stl_from_file(&input_filename).expect("Parse stl from file");
     println!("{:?}", stl);
 }

@@ -1,6 +1,3 @@
-extern crate chrono;
-extern crate nom;
-
 use std::fmt;
 use std::fs::File;
 use std::io;
