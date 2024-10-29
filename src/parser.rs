@@ -1,9 +1,15 @@
 use std::{num::ParseIntError, str::FromStr};
 
-use winnow::{
-    self, bytes::streaming::take, combinator::map_res, error::{ErrorKind, FromExternalError}, multi::many1, number::streaming::{be_u8, le_u16}, sequence::tuple, stream::{ParseSlice, Stream, ToUsize},
-};
 use thiserror::Error;
+use winnow::{
+    self,
+    bytes::take,
+    error::{ErrMode, ErrorKind, FromExternalError},
+    multi::many1,
+    number::{be_u8, le_u16},
+    stream::{Stream, ToUsize},
+    Parser,
+};
 
 use super::*;
 
@@ -46,7 +52,7 @@ impl<I> winnow::error::ParseError<I> for ParseError {
     }
 
     // if combining multiple errors, we show them one after the other
-    fn append(self, input: I, kind: ErrorKind) -> Self {
+    fn append(self, _input: I, kind: ErrorKind) -> Self {
         let message = format!("{:?}", kind);
         Self::NomParsingError { message }
     }
@@ -68,14 +74,14 @@ where
     }
 }
 
-impl<E> From<winnow::Err<E>> for ParseError
+impl<E> From<ErrMode<E>> for ParseError
 where
     E: fmt::Display,
 {
-    fn from(err: winnow::Err<E>) -> Self {
+    fn from(err: ErrMode<E>) -> Self {
         match err {
-            winnow::Err::Incomplete(_) => ParseError::Incomplete,
-            winnow::Err::Backtrack(e) | winnow::Err::Cut(e) => Self::NomParsingError {
+            ErrMode::Incomplete(_) => ParseError::Incomplete,
+            ErrMode::Backtrack(e) | ErrMode::Cut(e) => Self::NomParsingError {
                 message: format!("{}", e),
             },
         }
@@ -95,27 +101,27 @@ pub fn parse_stl_from_slice(input: &[u8]) -> Result<Stl, ParseError> {
     Ok(stl)
 }
 
-
 pub fn take_str<'a, C: ToUsize, Error: winnow::error::ParseError<&'a [u8]>>(
     count: C,
 ) -> impl Fn(&'a [u8]) -> winnow::IResult<&'a [u8], &'a str, Error> {
     let c = count.to_usize();
     eprintln!("Take str {c}");
     move |i: &[u8]| match i.offset_at(c) {
-        Err(i) => Err(winnow::Err::Incomplete(i)),
+        Err(i) => Err(ErrMode::Incomplete(i)),
         Ok(index) => {
             let (first, rest) = i.split_at(index);
             Ok((
                 rest,
-                str::from_utf8(first).map_err(|err| {
-                    eprintln!("Utf8 Error: {err}");
-                    winnow::Err::Backtrack(Error::from_error_kind(rest, winnow::error::ErrorKind::Fail))
+                str::from_utf8(first).map_err(|_err| {
+                    ErrMode::Backtrack(Error::from_error_kind(
+                        rest,
+                        winnow::error::ErrorKind::Fail,
+                    ))
                 })?,
             ))
         }
     }
 }
-
 
 fn u8_from_str_with_default_if_blank(input: &str, default: u8) -> Result<u8, ParseIntError> {
     if input.trim().is_empty() {
@@ -126,52 +132,51 @@ fn u8_from_str_with_default_if_blank(input: &str, default: u8) -> Result<u8, Par
 }
 
 fn parse_gsi_block(input: &[u8]) -> IResult<&[u8], GsiBlock> {
-    let (input, (codepage, dfc, dsc, cct)) = tuple((
-        map_res(take_str(3_u16), u16::from_str),
-        map_res(take_str(10 - 3 + 1_u16), DiskFormatCode::parse),
-        map_res(be_u8, DisplayStandardCode::parse),
-        map_res(take(13 - 12 + 1_u16), CharacterCodeTable::parse),
-    ))(input)?;
-    let cpn = CodePageNumber::from_u16(codepage).map_err(winnow::Err::Backtrack)?;
-    let coding = CodePageDecoder::new(codepage).map_err(winnow::Err::Backtrack)?;
+    let (input, (codepage, dfc, dsc, cct)) = (
+        take_str(3_u16).map_res(u16::from_str),
+        take_str(10 - 3 + 1_u16).map_res(DiskFormatCode::parse),
+        be_u8.map_res(DisplayStandardCode::parse),
+        take(13 - 12 + 1_u16).map_res(CharacterCodeTable::parse),
+    )
+        .parse_next(input)?;
+    let cpn = CodePageNumber::from_u16(codepage).map_err(ErrMode::Backtrack)?;
+    let coding = CodePageDecoder::new(codepage).map_err(ErrMode::Backtrack)?;
 
     let (input, (lc, opt, oet, tpt, tet, tn, tcd, slr, cd, rd, rn, tnb, tns, tng, mnc, mnr, tcs)) =
-        tuple((
-            map_res(take(15 - 14 + 1_u16), |data| coding.parse(data)),
-            map_res(take(47 - 16 + 1_u16), |data| coding.parse(data)),
-            map_res(take(79 - 48 + 1_u16), |data| coding.parse(data)),
-            map_res(take(111 - 80 + 1_u16), |data| coding.parse(data)),
-            map_res(take(143 - 112 + 1_u16), |data| coding.parse(data)),
-            map_res(take(175 - 144 + 1_u16), |data| coding.parse(data)),
-            map_res(take(207 - 176 + 1_u16), |data| coding.parse(data)),
-            map_res(take(223 - 208 + 1_u16), |data| coding.parse(data)),
-            map_res(take(229 - 224 + 1_u16), |data| coding.parse(data)),
-            map_res(take(235 - 230 + 1_u16), |data| coding.parse(data)),
-            map_res(take(237 - 236 + 1_u16), |data| coding.parse(data)),
-            map_res(take_str(242 - 238 + 1_u16), u16::from_str),
-            map_res(take_str(247 - 243 + 1_u16), u16::from_str),
-            map_res(take_str(250 - 248 + 1_u16), u16::from_str),
-            map_res(take_str(252 - 251 + 1_u16), u16::from_str),
-            map_res(take_str(254 - 253 + 1_u16), u16::from_str),
-            map_res(be_u8, TimeCodeStatus::parse),
-        ))(input)?;
+        (
+            take(15 - 14 + 1_u16).map_res(|data| coding.parse(data)),
+            take(47 - 16 + 1_u16).map_res(|data| coding.parse(data)),
+            take(79 - 48 + 1_u16).map_res(|data| coding.parse(data)),
+            take(111 - 80 + 1_u16).map_res(|data| coding.parse(data)),
+            take(143 - 112 + 1_u16).map_res(|data| coding.parse(data)),
+            take(175 - 144 + 1_u16).map_res(|data| coding.parse(data)),
+            take(207 - 176 + 1_u16).map_res(|data| coding.parse(data)),
+            take(223 - 208 + 1_u16).map_res(|data| coding.parse(data)),
+            take(229 - 224 + 1_u16).map_res(|data| coding.parse(data)),
+            take(235 - 230 + 1_u16).map_res(|data| coding.parse(data)),
+            take(237 - 236 + 1_u16).map_res(|data| coding.parse(data)),
+            take_str(242 - 238 + 1_u16).map_res(u16::from_str),
+            take_str(247 - 243 + 1_u16).map_res(u16::from_str),
+            take_str(250 - 248 + 1_u16).map_res(u16::from_str),
+            take_str(252 - 251 + 1_u16).map_res(u16::from_str),
+            take_str(254 - 253 + 1_u16).map_res(u16::from_str),
+            be_u8.map_res(TimeCodeStatus::parse),
+        )
+            .parse_next(input)?;
 
-    let (input, (tcp, tcf, tnd, dsn, co, pub_, en, ecd, _spare, uda)) = tuple((
-        map_res(take(263 - 256 + 1_u16), |data| coding.parse(data)),
-        map_res(take(271 - 264 + 1_u16), |data| coding.parse(data)),
-        map_res(take_str(1_u16), |data| {
-            u8_from_str_with_default_if_blank(data, 1)
-        }),
-        map_res(take_str(1_u16), |data| {
-            u8_from_str_with_default_if_blank(data, 1)
-        }),
-        map_res(take(276 - 274 + 1_u16), |data| coding.parse(data)),
-        map_res(take(308 - 277 + 1_u16), |data| coding.parse(data)),
-        map_res(take(340 - 309 + 1_u16), |data| coding.parse(data)),
-        map_res(take(372 - 341 + 1_u16), |data| coding.parse(data)),
-        map_res(take(447 - 373 + 1_u16), |data| coding.parse(data)),
-        map_res(take(1023 - 448 + 1_u16), |data| coding.parse(data)),
-    ))(input)?;
+    let (input, (tcp, tcf, tnd, dsn, co, pub_, en, ecd, _spare, uda)) = (
+        take(263 - 256 + 1_u16).map_res(|data| coding.parse(data)),
+        take(271 - 264 + 1_u16).map_res(|data| coding.parse(data)),
+        take_str(1_u16).map_res(|data| u8_from_str_with_default_if_blank(data, 1)),
+        take_str(1_u16).map_res(|data| u8_from_str_with_default_if_blank(data, 1)),
+        take(276 - 274 + 1_u16).map_res(|data| coding.parse(data)),
+        take(308 - 277 + 1_u16).map_res(|data| coding.parse(data)),
+        take(340 - 309 + 1_u16).map_res(|data| coding.parse(data)),
+        take(372 - 341 + 1_u16).map_res(|data| coding.parse(data)),
+        take(447 - 373 + 1_u16).map_res(|data| coding.parse(data)),
+        take(1023 - 448 + 1_u16).map_res(|data| coding.parse(data)),
+    )
+        .parse_next(input)?;
     Ok((
         input,
         GsiBlock {
@@ -211,30 +216,30 @@ fn parse_gsi_block(input: &[u8]) -> IResult<&[u8], GsiBlock> {
 }
 
 fn parse_time(input: &[u8]) -> IResult<&[u8], Time> {
-    let (input, (h, m, s, f)) = tuple((be_u8, be_u8, be_u8, be_u8))(input)?;
+    let (input, (h, m, s, f)) = (be_u8, be_u8, be_u8, be_u8).parse_next(input)?;
     Ok((input, Time::new(h, m, s, f)))
 }
 
 fn parse_tti_block(cct: CharacterCodeTable, input: &[u8]) -> IResult<&[u8], TtiBlock> {
     //Needed to handle the many1 operator, that expects an error when done.
     if input.is_empty() {
-        return Err(winnow::Err::Backtrack(winnow::error::ParseError::from_error_kind(
-            input,
-            winnow::error::ErrorKind::Eof,
-        )));
+        return Err(ErrMode::Backtrack(
+            winnow::error::ParseError::from_error_kind(input, winnow::error::ErrorKind::Eof),
+        ));
     }
-    let (input, (sgn, sn, ebn, cs, tci, tco, vp, jc, cf, tf)) = tuple((
+    let (input, (sgn, sn, ebn, cs, tci, tco, vp, jc, cf, tf)) = (
         be_u8,
         le_u16,
         be_u8,
-        map_res(be_u8, CumulativeStatus::parse),
+        be_u8.map_res(CumulativeStatus::parse),
         parse_time,
         parse_time,
         be_u8,
         be_u8,
         be_u8,
         take(112_u16),
-    ))(input)?;
+    )
+        .parse_next(input)?;
     Ok((
         input,
         TtiBlock {
@@ -262,11 +267,11 @@ mod tests {
     #[test]
     fn test_parse_time() {
         let empty: &[u8] = &[];
-        let ok = &vec![0x1, 0x2, 0x3, 0x4];
-        let incomplete = &vec![0x1];
+        let ok = [0x1, 0x2, 0x3, 0x4];
+        let incomplete = [0x1];
 
         assert_eq!(
-            parse_time(ok),
+            parse_time(&ok),
             Ok((
                 empty,
                 Time {
@@ -278,8 +283,8 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse_time(incomplete),
-            Err(winnow::Err::Incomplete(Needed::new(1)))
+            parse_time(&incomplete),
+            Err(ErrMode::Incomplete(Needed::new(1)))
         );
     }
     //Comented out since the test file is propritary
