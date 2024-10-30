@@ -294,6 +294,8 @@ mod tests {
         let Ok(base_folder) = std::env::var("EBUSTL_PARSER_STL_TEST_FILES") else {
             return Ok(());
         };
+
+        println!("Will walk {base_folder} and try to parse all stl files found");
         for entry in WalkDir::new(base_folder).into_iter().filter_map(|e| e.ok()) {
             let Some(filename) = entry.file_name().to_str() else {
                 continue;
