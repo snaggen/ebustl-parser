@@ -1,8 +1,8 @@
-use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::str;
+use std::{fmt, path::Path};
 
 use codepage_strings::Coding;
 use textcode::{iso6937, iso8859_5, iso8859_6, iso8859_7, iso8859_8};
@@ -81,7 +81,7 @@ impl Default for Stl {
 /// let stl = parse_stl_from_file("/path/to/subtiltle.stl").expect("Parse stl from file");
 /// println!("{:?}", stl);
 /// ```
-pub fn parse_stl_from_file(filename: &str) -> Result<Stl, ParseError> {
+pub fn parse_stl_from_file<P: AsRef<Path>>(filename: P) -> Result<Stl, ParseError> {
     let mut f = File::open(filename)?;
     let mut buffer = vec![];
     f.read_to_end(&mut buffer)?;
