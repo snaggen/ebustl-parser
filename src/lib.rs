@@ -10,8 +10,8 @@ pub mod parser;
 use crate::parser::parse_stl_from_slice;
 pub use crate::parser::ParseError;
 
-// STL File
-
+/// A representation of a STL File
+/// See the [Spec](https://tech.ebu.ch/docs/tech/tech3264.pdf) for details
 #[derive(Debug)]
 pub struct Stl {
     pub gsi: GsiBlock,
@@ -24,6 +24,7 @@ impl fmt::Display for Stl {
     }
 }
 
+/// Text format information
 pub struct TtiFormat {
     #[doc = "Justification Code"]
     pub jc: u8,
@@ -68,6 +69,8 @@ impl Default for Stl {
     }
 }
 
+/// Reads an STL file and parse it to a [Stl] struct.
+/// Use [`crate::parser::parse_stl_from_slice`] to parse in memory data
 pub fn parse_stl_from_file(filename: &str) -> Result<Stl, ParseError> {
     let mut f = File::open(filename)?;
     let mut buffer = vec![];
@@ -94,6 +97,7 @@ impl CodePageDecoder {
 
 // GSI Block
 
+///The codepage numbers an stl file can use for strings
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum CodePageNumber {
@@ -127,6 +131,7 @@ impl CodePageNumber {
     }
 }
 
+/// The four display modes from the spec.
 #[derive(Debug)]
 pub enum DisplayStandardCode {
     Blank,
@@ -156,6 +161,7 @@ impl DisplayStandardCode {
     }
 }
 
+/// A Status to indicate the validity of the information in GSI and TTI blocks.
 #[derive(Debug)]
 pub enum TimeCodeStatus {
     NotIntendedForUse,
@@ -179,6 +185,8 @@ impl TimeCodeStatus {
     }
 }
 
+/// The five ISO Standard character code tables can be used to define the text in the Text Field of
+/// the TTI Blocks
 #[derive(Debug, Copy, Clone)]
 pub enum CharacterCodeTable {
     Latin,
@@ -217,6 +225,7 @@ impl CharacterCodeTable {
     }
 }
 
+/// The television frame-rates the STL spec allows
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum DiskFormatCode {
@@ -250,6 +259,7 @@ impl DiskFormatCode {
     }
 }
 
+/// General Subtitle Information (GSI) block
 #[derive(Debug)]
 pub struct GsiBlock {
     #[doc = "0..2 Code Page Number"]
@@ -514,6 +524,7 @@ impl fmt::Display for GsiBlock {
 
 // TTI Block
 
+/// A status to indicate if a subtitle is part of a cumulative set of subtitles
 #[derive(Debug)]
 pub enum CumulativeStatus {
     NotPartOfASet,
@@ -543,6 +554,7 @@ impl CumulativeStatus {
     }
 }
 
+/// The horizontal alignment of a displayed subtitle
 pub enum Justification {
     Unchanged,
     Left,
@@ -550,6 +562,7 @@ pub enum Justification {
     Right,
 }
 
+/// A represenation of a Time Code
 #[derive(Debug, PartialEq, Eq)]
 pub struct Time {
     pub hours: u8,
@@ -583,6 +596,7 @@ impl fmt::Display for Time {
     }
 }
 
+/// Text and Timing Information (TTI) block
 pub struct TtiBlock {
     #[doc = "0 Subtitle Group Number. 00h-FFh"]
     sgn: u8,

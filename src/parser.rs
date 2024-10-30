@@ -50,6 +50,7 @@ where
     }
 }
 
+/// Parse binary data in the form of bytes array, in to a [Stl] struct
 pub fn parse_stl_from_slice(input: &mut &[u8]) -> PResult<Stl> {
     let gsi = parse_gsi_block(input)?;
     let ttis = repeat(1.., parse_tti_block(gsi.cct)).parse_next(input)?;
@@ -200,9 +201,7 @@ fn parse_time(input: &mut &[u8]) -> PResult<Time> {
 }
 
 #[inline(always)]
-fn parse_tti_block<'a>(
-    cct: CharacterCodeTable,
-) -> impl Parser<&'a [u8], TtiBlock, ContextError> {
+fn parse_tti_block<'a>(cct: CharacterCodeTable) -> impl Parser<&'a [u8], TtiBlock, ContextError> {
     move |input: &mut &'a [u8]| {
         if input.is_empty() {
             return Err(ErrMode::Backtrack(
