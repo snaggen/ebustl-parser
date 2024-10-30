@@ -42,7 +42,7 @@ impl Stl {
         }
     }
 
-    pub fn write_to_file(&self, filename: &str) -> Result<(), io::Error> {
+    pub fn write_to_file<P: AsRef<Path>>(&self, filename: P) -> Result<(), io::Error> {
         let mut f = File::create(filename)?;
         f.write_all(&self.gsi.serialize())?;
         for tti in self.ttis.iter() {
