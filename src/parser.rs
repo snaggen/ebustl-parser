@@ -322,31 +322,4 @@ mod tests {
         }
         Ok(())
     }
-
-    //Ignored since the test file is propritary
-    #[test]
-    #[ignore]
-    fn test_parse_proprietary_file() {
-        let stl = parse_stl_from_file("stls/proprietary.stl")
-            .map_err(|err| {
-                eprintln!("Error: {}", err);
-                err.to_string()
-            })
-            .expect("Parse stl");
-        println!("STL:\n{:?}", stl);
-        //        assert_eq!(1_u8, stl.gsi.tnd);
-        //        assert_eq!(1_u8, stl.gsi.dsn);
-        //        assert_eq!(28, stl.ttis.len());
-        //        assert_eq!(
-        //            "سوف تقوم بتدريبات بسيطة جدا\u{64b} اليوم",
-        //            stl.ttis.get(11).unwrap().get_text()
-        //        );
-    }
-    /* TODO
-    #[test]
-    fn test_parse_tti() {
-    }
-    fn test_parse_gsi() {
-    }
-    */
 }
