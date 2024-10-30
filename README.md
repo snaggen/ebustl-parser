@@ -5,7 +5,7 @@ EBU-STL subtitling format in Rust
 
 A basic implementation of a parser for the [EBU-STL subtitling file format](https://tech.ebu.ch/docs/tech/tech3264.pdf).
 
-This is a fork of [ebustl] https://github.com/tytouf/ebustl-rs, for maintenance purposes
+This is a fork of [ebustl](https://github.com/tytouf/ebustl-rs), for maintenance purposes
 
 Example:
 ```rust
