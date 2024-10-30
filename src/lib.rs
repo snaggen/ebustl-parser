@@ -572,7 +572,7 @@ pub enum Justification {
     Right,
 }
 
-/// A represenation of a Time Code
+/// A representation of a Time Code
 #[derive(Debug, PartialEq, Eq)]
 pub struct Time {
     pub hours: u8,
