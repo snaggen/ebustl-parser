@@ -70,7 +70,17 @@ impl Default for Stl {
 }
 
 /// Reads an STL file and parse it to a [Stl] struct.
+///
 /// Use [`crate::parser::parse_stl_from_slice`] to parse in memory data
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use ebustl_parser::parse_stl_from_file;
+///
+/// let stl = parse_stl_from_file("/path/to/subtiltle.stl").expect("Parse stl from file");
+/// println!("{:?}", stl);
+/// ```
 pub fn parse_stl_from_file(filename: &str) -> Result<Stl, ParseError> {
     let mut f = File::open(filename)?;
     let mut buffer = vec![];

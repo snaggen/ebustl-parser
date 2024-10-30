@@ -51,6 +51,22 @@ where
 }
 
 /// Parse binary data in the form of bytes array, in to a [Stl] struct
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use ebustl_parser::parser::parse_stl_from_slice;
+/// use std::fs::File;
+/// use std::io::Read;
+///
+/// let mut f = File::open("/path/to/subtitle.stl").expect("Open subtitle file");
+/// let mut buffer = vec![];
+/// f.read_to_end(&mut buffer).expect("Read to end");
+///
+/// let stl = parse_stl_from_slice(&mut buffer.as_slice()).expect("Parse stl from slice");
+/// println!("{:?}", stl);
+/// ```
+
 pub fn parse_stl_from_slice(input: &mut &[u8]) -> PResult<Stl> {
     let gsi = parse_gsi_block(input)?;
     let ttis = repeat(1.., parse_tti_block(gsi.cct)).parse_next(input)?;
