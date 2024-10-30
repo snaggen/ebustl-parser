@@ -247,6 +247,8 @@ fn parse_tti_block<'a>(cct: CharacterCodeTable) -> impl Parser<&'a [u8], TtiBloc
 
 #[cfg(test)]
 mod tests {
+    use walkdir::WalkDir;
+
     use super::*;
 
     #[test]
@@ -284,6 +286,39 @@ mod tests {
             "    dans la baie de New York.\r\n",
             stl.ttis.get(11).unwrap().get_text()
         );
+    }
+
+    // Test to test basic parsing against a non-public subtitle test file library
+    #[test]
+    fn test_local_file_library() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(base_folder) = std::env::var("EBUSTL_PARSER_STL_TEST_FILES") else {
+            return Ok(());
+        };
+        for entry in WalkDir::new(base_folder).into_iter().filter_map(|e| e.ok()) {
+            let Some(filename) = entry.file_name().to_str() else {
+                continue;
+            };
+            if filename.starts_with('.') || !filename.to_lowercase().ends_with(".stl") {
+                continue;
+            }
+            let stl = parse_stl_from_file(entry.path())?;
+            if !stl.ttis.is_empty() {
+                let text = stl
+                    .ttis
+                    .iter()
+                    .find(|a| !a.get_text().is_empty())
+                    .map(|tti| tti.get_text())
+                    .unwrap_or_else(|| {
+                        panic!("{:?} doesn't have any non-empty text blocks", entry.path())
+                    });
+                let first_line = text
+                    .lines()
+                    .next()
+                    .unwrap_or_else(|| panic!("{:?} doesn't have a first text line", entry.path()));
+                println!("Test library file {filename}: {}", first_line);
+            }
+        }
+        Ok(())
     }
 
     //Ignored since the test file is propritary
