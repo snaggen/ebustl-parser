@@ -206,7 +206,7 @@ pub fn parse_tti_block<'a>(
     move |input: &mut &'a [u8]| {
         if input.is_empty() {
             return Err(ErrMode::Backtrack(
-                winnow::error::ParserError::from_error_kind(&input, winnow::error::ErrorKind::Eof),
+                winnow::error::ParserError::from_error_kind(input, winnow::error::ErrorKind::Eof),
             ));
         }
 
