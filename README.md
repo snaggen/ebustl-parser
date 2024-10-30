@@ -10,8 +10,6 @@ This is a fork of [ebustl](https://github.com/tytouf/ebustl-rs), for maintenance
 Example:
 ```rust
 use ebustl_parser::parse_stl_from_file;
-use std::env;
-use std::process;
 
 fn main() {
     let stl = parse_stl_from_file("/path/to/subtiltle.stl").expect("Parse stl from file");
