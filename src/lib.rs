@@ -73,7 +73,7 @@ pub fn parse_stl_from_file(filename: &str) -> Result<Stl, ParseError> {
     let mut buffer = vec![];
     f.read_to_end(&mut buffer)?;
 
-    parse_stl_from_slice(&buffer)
+    Ok(parse_stl_from_slice(&mut buffer.as_slice())?)
 }
 
 struct CodePageDecoder {
@@ -94,7 +94,7 @@ impl CodePageDecoder {
 
 // GSI Block
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum CodePageNumber {
     CPN_437,
@@ -559,15 +559,6 @@ pub struct Time {
 }
 
 impl Time {
-    fn new(h: u8, m: u8, s: u8, f: u8) -> Time {
-        Time {
-            hours: h,
-            minutes: m,
-            seconds: s,
-            frames: f,
-        }
-    }
-
     pub fn format_fps(&self, fps: usize) -> String {
         format!(
             "{}:{}:{},{}",

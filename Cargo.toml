@@ -16,5 +16,5 @@ chrono = "0.4"
 thiserror = "1.0"                                                               
 codepage-strings = "1.0.2"
 textcode = "0.2.2"
-winnow = "0.4"
+winnow = "0.5"
 
