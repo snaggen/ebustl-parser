@@ -200,7 +200,7 @@ fn parse_time(input: &mut &[u8]) -> PResult<Time> {
 }
 
 #[inline(always)]
-pub fn parse_tti_block<'a>(
+fn parse_tti_block<'a>(
     cct: CharacterCodeTable,
 ) -> impl Parser<&'a [u8], TtiBlock, ContextError> {
     move |input: &mut &'a [u8]| {
