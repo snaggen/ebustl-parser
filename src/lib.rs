@@ -12,7 +12,7 @@ pub use crate::parser::ParseError;
 
 /// A representation of a STL File
 /// See the [Spec](https://tech.ebu.ch/docs/tech/tech3264.pdf) for details
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Stl {
     pub gsi: GsiBlock,
     pub ttis: Vec<TtiBlock>,
@@ -42,9 +42,9 @@ impl Stl {
         }
     }
 
-    pub fn write_to_file<P: AsRef<Path>>(&self, filename: P) -> Result<(), io::Error> {
+    pub fn write_to_file<P: AsRef<Path>>(&self, filename: P) -> Result<(), ParseError> {
         let mut f = File::create(filename)?;
-        f.write_all(&self.gsi.serialize())?;
+        f.write_all(&self.gsi.serialize()?)?;
         for tti in self.ttis.iter() {
             f.write_all(&tti.serialize())?;
         }
@@ -89,19 +89,30 @@ pub fn parse_stl_from_file<P: AsRef<Path>>(filename: P) -> Result<Stl, ParseErro
     Ok(parse_stl_from_slice(&mut buffer.as_slice())?)
 }
 
-struct CodePageDecoder {
+struct CodePageCodec {
     coding: Coding,
+    codepage: u16,
 }
 
-impl CodePageDecoder {
+impl CodePageCodec {
     pub fn new(codepage: u16) -> Result<Self, ParseError> {
         Ok(Self {
+            codepage,
             coding: Coding::new(codepage).map_err(|_e| ParseError::CodePageNumber(codepage))?,
         })
     }
 
-    fn parse(&self, data: &[u8]) -> Result<String, ParseError> {
+    fn decode(&self, data: &[u8]) -> Result<String, ParseError> {
         Ok(self.coding.decode_lossy(data).to_string())
+    }
+    fn encode(&self, value: &str) -> Result<Vec<u8>, ParseError> {
+        self.coding
+            .encode(value)
+            .map_err(|err| ParseError::CodePageEncoding {
+                codepage: self.codepage,
+                value: value.to_string(),
+                source: err,
+            })
     }
 }
 
@@ -139,10 +150,20 @@ impl CodePageNumber {
             _ => Err(ParseError::CodePageNumber(codepage)),
         }
     }
+
+    fn to_u16(self) -> u16 {
+        match self {
+            CodePageNumber::CPN_437 => 437,
+            CodePageNumber::CPN_850 => 850,
+            CodePageNumber::CPN_860 => 860,
+            CodePageNumber::CPN_863 => 863,
+            CodePageNumber::CPN_865 => 865,
+        }
+    }
 }
 
 /// The four display modes from the spec.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DisplayStandardCode {
     Blank,
     OpenSubtitling,
@@ -172,7 +193,7 @@ impl DisplayStandardCode {
 }
 
 /// A Status to indicate the validity of the information in GSI and TTI blocks.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TimeCodeStatus {
     NotIntendedForUse,
     IntendedForUse,
@@ -197,7 +218,7 @@ impl TimeCodeStatus {
 
 /// The five ISO Standard character code tables can be used to define the text in the Text Field of
 /// the TTI Blocks
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CharacterCodeTable {
     Latin,
     LatinCyrillic,
@@ -236,7 +257,7 @@ impl CharacterCodeTable {
 }
 
 /// The television frame-rates the STL spec allows
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum DiskFormatCode {
     STL25_01,
@@ -270,7 +291,7 @@ impl DiskFormatCode {
 }
 
 /// General Subtitle Information (GSI) block
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GsiBlock {
     #[doc = "0..2 Code Page Number"]
     cpn: CodePageNumber,
@@ -436,6 +457,19 @@ fn push_string(v: &mut Vec<u8>, s: &str, len: usize) {
     v.extend(vec![0x20u8; padding]);
 }
 
+fn push_encoded_string(
+    v: &mut Vec<u8>,
+    c: &CodePageCodec,
+    s: &str,
+    len: usize,
+) -> Result<(), ParseError> {
+    let addendum = c.encode(s)?;
+    let padding = len - addendum.len();
+    v.extend(addendum.iter().cloned());
+    v.extend(vec![0x20u8; padding]);
+    Ok(())
+}
+
 impl GsiBlock {
     pub fn new() -> GsiBlock {
         let date = chrono::Local::now();
@@ -475,24 +509,26 @@ impl GsiBlock {
         }
     }
 
-    fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Result<Vec<u8>, ParseError> {
+        let codepage = self.get_code_page_number().to_u16();
+        let coding = CodePageCodec::new(codepage).expect("codepage");
         let mut res = Vec::with_capacity(1024);
         res.extend(self.cpn.serialize());
         res.extend(self.dfc.serialize().iter().cloned());
         res.push(self.dsc.serialize());
         res.extend(self.cct.serialize());
         // be careful for the length of following: must force padding
-        push_string(&mut res, &self.lc, 15 - 14 + 1);
-        push_string(&mut res, &self.opt, 47 - 16 + 1);
-        push_string(&mut res, &self.oet, 79 - 48 + 1);
-        push_string(&mut res, &self.tpt, 111 - 80 + 1);
-        push_string(&mut res, &self.tet, 143 - 112 + 1);
-        push_string(&mut res, &self.tn, 175 - 144 + 1);
-        push_string(&mut res, &self.tcd, 207 - 176 + 1);
-        push_string(&mut res, &self.slr, 223 - 208 + 1);
-        push_string(&mut res, &self.cd, 229 - 224 + 1);
-        push_string(&mut res, &self.rd, 235 - 230 + 1);
-        push_string(&mut res, &self.rn, 237 - 236 + 1);
+        push_encoded_string(&mut res, &coding, &self.lc, 15 - 14 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.opt, 47 - 16 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.oet, 79 - 48 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.tpt, 111 - 80 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.tet, 143 - 112 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.tn, 175 - 144 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.tcd, 207 - 176 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.slr, 223 - 208 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.cd, 229 - 224 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.rd, 235 - 230 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.rn, 237 - 236 + 1)?;
 
         push_string(&mut res, &format!("{:05}", self.tnb), 242 - 238 + 1);
         push_string(&mut res, &format!("{:05}", self.tns), 247 - 243 + 1);
@@ -501,18 +537,18 @@ impl GsiBlock {
         push_string(&mut res, &format!("{:02}", self.mnr), 254 - 253 + 1);
 
         res.push(self.tcs.serialize());
-        push_string(&mut res, &self.tcp, 263 - 256 + 1);
-        push_string(&mut res, &self.tcf, 271 - 264 + 1);
+        push_encoded_string(&mut res, &coding, &self.tcp, 263 - 256 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.tcf, 271 - 264 + 1)?;
         push_string(&mut res, &format!("{:1}", self.tnd), 1);
         push_string(&mut res, &format!("{:1}", self.dsn), 1);
-        push_string(&mut res, &self.co, 276 - 274 + 1);
-        push_string(&mut res, &self.pub_, 308 - 277 + 1);
-        push_string(&mut res, &self.en, 340 - 309 + 1);
-        push_string(&mut res, &self.ecd, 372 - 341 + 1);
-        push_string(&mut res, &self._spare, 447 - 373 + 1);
-        push_string(&mut res, &self.uda, 1023 - 448 + 1);
+        push_encoded_string(&mut res, &coding, &self.co, 276 - 274 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.pub_, 308 - 277 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.en, 340 - 309 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.ecd, 372 - 341 + 1)?;
+        push_encoded_string(&mut res, &coding, &self._spare, 447 - 373 + 1)?;
+        push_encoded_string(&mut res, &coding, &self.uda, 1023 - 448 + 1)?;
 
-        res
+        Ok(res)
     }
 }
 
@@ -535,7 +571,7 @@ impl fmt::Display for GsiBlock {
 // TTI Block
 
 /// A status to indicate if a subtitle is part of a cumulative set of subtitles
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CumulativeStatus {
     NotPartOfASet,
     FirstInSet,
@@ -607,6 +643,7 @@ impl fmt::Display for Time {
 }
 
 /// Text and Timing Information (TTI) block
+#[derive(PartialEq, Eq)]
 pub struct TtiBlock {
     #[doc = "0 Subtitle Group Number. 00h-FFh"]
     sgn: u8,
@@ -626,7 +663,7 @@ pub struct TtiBlock {
     jc: u8,
     #[doc = "15 Comment Flag"]
     cf: u8,
-    #[doc = "16..127 Text Field"]
+    #[doc = "16..127 Text Field encoded as the Character Code Table"]
     tf: Vec<u8>,
     #[doc = "Duplication of the CharacterCodeTable in GsiBlock, do be able to decode/encode text independent of the GsiBlock"]
     cct: CharacterCodeTable, //Needed for Display/Debug without access to GsiBlock

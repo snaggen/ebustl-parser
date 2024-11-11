@@ -1,5 +1,6 @@
 use std::{num::ParseIntError, str::FromStr};
 
+use codepage_strings::ConvertError;
 use thiserror::Error;
 use winnow::{
     self,
@@ -34,6 +35,12 @@ pub enum ParseError {
     CumulativeStatus,
     #[error("Parse error: {message}")]
     WinnowParsingError { message: String },
+    #[error("Failed to encode string '{value}' using codepage {codepage}: {source}")]
+    CodePageEncoding {
+        codepage: u16,
+        value: String,
+        source: ConvertError,
+    },
 }
 
 impl<E> From<ErrMode<E>> for ParseError
@@ -105,9 +112,8 @@ fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
     .parse_next(input)?;
     let cpn = CodePageNumber::from_u16(codepage)
         .map_err(|err| ErrMode::from_external_error(&input, ErrorKind::Fail, err))?;
-    let coding = CodePageDecoder::new(codepage)
+    let coding = CodePageCodec::new(codepage)
         .map_err(|err| ErrMode::from_external_error(&input, ErrorKind::Fail, err))?;
-
     seq!(GsiBlock {
         cpn:
             ().try_map(|_i| Ok::<CodePageNumber, std::convert::Infallible>(cpn))
@@ -122,37 +128,37 @@ fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
             .try_map(CharacterCodeTable::parse)
             .context(Label("cct")),
         lc: take(15 - 14 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("lc")),
         opt: take(47 - 16 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("opt")),
         oet: take(79 - 48 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("oet")),
         tpt: take(111 - 80 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tpt")),
         tet: take(143 - 112 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tet")),
         tn: take(175 - 144 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tn")),
         tcd: take(207 - 176 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tcd")),
         slr: take(223 - 208 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("slr")),
         cd: take(229 - 224 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("cd")),
         rd: take(235 - 230 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("rd")),
         rn: take(237 - 236 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("rn")),
         tnb: take_str(242 - 238 + 1_u16)
             .try_map(u16::from_str)
@@ -171,10 +177,10 @@ fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
             .context(Label("mnr")),
         tcs: be_u8.try_map(TimeCodeStatus::parse).context(Label("tcs")),
         tcp: take(263 - 256 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tcp")),
         tcf: take(271 - 264 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("tcf")),
         tnd: take_str(1_u16)
             .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
@@ -183,22 +189,22 @@ fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
             .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
             .context(Label("dns")),
         co: take(276 - 274 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("co")),
         pub_: take(308 - 277 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("pub_")),
         en: take(340 - 309 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("en")),
         ecd: take(372 - 341 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("ecd")),
         _spare: take(447 - 373 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("_spare")),
         uda: take(1023 - 448 + 1_u16)
-            .try_map(|data| coding.parse(data))
+            .try_map(|data| coding.decode(data))
             .context(Label("uda")),
     })
     .context(Label("GsiBlock"))
@@ -269,13 +275,19 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_file() {
-        let stl = parse_stl_from_file("stls/test.stl")
+    fn parse_basic_file() {
+        let mut f = File::open("stls/test.stl").expect("Open stls/test.stl");
+        let mut buffer = vec![];
+        f.read_to_end(&mut buffer).expect("Read to end");
+
+        let stl = parse_stl_from_slice(&mut buffer.as_slice())
             .map_err(|err| {
                 eprintln!("Error: {}", err);
                 err.to_string()
             })
-            .expect("Parse stl");
+            .expect("parse_stl_from_slice");
+        let stl2 = parse_stl_from_file("stls/test.stl").expect("parse_stl_from_file");
+
         println!("STL:\n{:?}", stl);
         assert_eq!(CodePageNumber::CPN_850, stl.gsi.cpn);
         assert_eq!(1_u8, stl.gsi.tnd);
@@ -286,6 +298,37 @@ mod tests {
             "    dans la baie de New York.\r\n",
             stl.ttis.get(11).unwrap().get_text()
         );
+
+        assert_eq!(stl, stl2);
+    }
+
+    fn roundtrip_file<P>(filename: P) -> Result<Stl, ParseError>
+    where
+        P: AsRef<Path>,
+        P: fmt::Debug,
+    {
+        let filepath = filename.as_ref();
+        let mut f = File::open(filepath).unwrap_or_else(|_| panic!("Open file {filepath:?}"));
+        let mut buffer = vec![];
+        f.read_to_end(&mut buffer).expect("Read to end");
+
+        let stl = parse_stl_from_slice(&mut buffer.as_slice())
+            .map_err(|err| {
+                eprintln!("Error: {}", err);
+                err.to_string()
+            })
+            .expect("Parse stl");
+
+        let mut serialized = stl.gsi.serialize().expect("Serialize GSI");
+        stl.ttis
+            .iter()
+            .for_each(|tti| serialized.append(&mut tti.serialize()));
+        assert_eq!(buffer, serialized);
+        Ok(stl)
+    }
+    #[test]
+    fn roundtrip_basic_file() {
+        roundtrip_file("stls/test.stl").expect("roundtrip stls/test.stl");
     }
 
     // Test to test basic parsing against a non-public subtitle test file library
@@ -303,7 +346,13 @@ mod tests {
             if filename.starts_with('.') || !filename.to_lowercase().ends_with(".stl") {
                 continue;
             }
-            let stl = parse_stl_from_file(entry.path())?;
+            println!("Roundtrip file {:?}", entry.path());
+            let stl = roundtrip_file(entry.path())?;
+            println!(
+                "Roundtripped file {:?} of codepage {:?}",
+                entry.path(),
+                stl.gsi.get_code_page_number()
+            );
             if !stl.ttis.is_empty() {
                 let text = stl
                     .ttis
