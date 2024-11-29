@@ -73,7 +73,6 @@ where
 /// let stl = parse_stl_from_slice(&mut buffer.as_slice()).expect("Parse stl from slice");
 /// println!("{:?}", stl);
 /// ```
-
 pub fn parse_stl_from_slice(input: &mut &[u8]) -> PResult<Stl> {
     let gsi = parse_gsi_block(input)?;
     let ttis = repeat(1.., parse_tti_block(gsi.cct)).parse_next(input)?;
