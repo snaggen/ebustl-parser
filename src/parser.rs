@@ -6,11 +6,11 @@ use winnow::{
     self,
     binary::{be_u8, le_u16},
     combinator::{repeat, trace},
-    error::{ContextError, ErrMode, ErrorKind, FromExternalError, ParserError, StrContext::Label},
+    error::{ContextError, ErrMode, FromExternalError, ParserError, StrContext::Label},
     seq,
     stream::ToUsize,
     token::take,
-    PResult, Parser,
+    ModalParser, ModalResult, Parser,
 };
 
 use super::*;
@@ -73,23 +73,23 @@ where
 /// let stl = parse_stl_from_slice(&mut buffer.as_slice()).expect("Parse stl from slice");
 /// println!("{:?}", stl);
 /// ```
-pub fn parse_stl_from_slice(input: &mut &[u8]) -> PResult<Stl> {
+pub fn parse_stl_from_slice(input: &mut &[u8]) -> ModalResult<Stl> {
     let gsi = parse_gsi_block(input)?;
     let ttis = repeat(1.., parse_tti_block(gsi.cct)).parse_next(input)?;
     Ok(Stl { gsi, ttis })
 }
 
 #[inline(always)]
-fn take_str<'a, C, Error: ParserError<&'a [u8]>>(count: C) -> impl Parser<&'a [u8], &'a str, Error>
+fn take_str<'a, C, Error: ParserError<&'a [u8]>>(
+    count: C,
+) -> impl ModalParser<&'a [u8], &'a str, Error>
 where
     C: ToUsize,
 {
     let c = count.to_usize();
     move |i: &mut &'a [u8]| {
         let first = take(c).parse_next(i)?;
-        str::from_utf8(first).map_err(|_err| {
-            ErrMode::Backtrack(Error::from_error_kind(i, winnow::error::ErrorKind::Fail))
-        })
+        str::from_utf8(first).map_err(|_err| ErrMode::Backtrack(Error::from_input(i)))
     }
 }
 
@@ -101,7 +101,7 @@ fn u8_from_str_with_default_if_blank(input: &str, default: u8) -> Result<u8, Par
     }
 }
 
-fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
+fn parse_gsi_block(input: &mut &[u8]) -> ModalResult<GsiBlock> {
     let codepage: u16 = trace(
         "codepage",
         take_str(3_u16)
@@ -109,108 +109,199 @@ fn parse_gsi_block(input: &mut &[u8]) -> PResult<GsiBlock> {
             .context(Label("codepage")),
     )
     .parse_next(input)?;
+
     let cpn = CodePageNumber::from_u16(codepage)
-        .map_err(|err| ErrMode::from_external_error(&input, ErrorKind::Fail, err))?;
-    let coding = CodePageCodec::new(codepage)
-        .map_err(|err| ErrMode::from_external_error(&input, ErrorKind::Fail, err))?;
-    seq!(GsiBlock {
-        cpn:
-            ().try_map(|_i| Ok::<CodePageNumber, std::convert::Infallible>(cpn))
-                .context(Label("cpn")),
-        dfc: take_str(10 - 3 + 1_u16)
-            .try_map(DiskFormatCode::parse)
-            .context(Label("dfc")),
-        dsc: be_u8
-            .try_map(DisplayStandardCode::parse)
-            .context(Label("dsc")),
-        cct: take(13 - 12 + 1_u16)
-            .try_map(CharacterCodeTable::parse)
-            .context(Label("cct")),
-        lc: take(15 - 14 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("lc")),
-        opt: take(47 - 16 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("opt")),
-        oet: take(79 - 48 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("oet")),
-        tpt: take(111 - 80 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tpt")),
-        tet: take(143 - 112 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tet")),
-        tn: take(175 - 144 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tn")),
-        tcd: take(207 - 176 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tcd")),
-        slr: take(223 - 208 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("slr")),
-        cd: take(229 - 224 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("cd")),
-        rd: take(235 - 230 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("rd")),
-        rn: take(237 - 236 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("rn")),
-        tnb: take_str(242 - 238 + 1_u16)
-            .try_map(u16::from_str)
-            .context(Label("tnb")),
-        tns: take_str(247 - 243 + 1_u16)
-            .try_map(u16::from_str)
-            .context(Label("tns")),
-        tng: take_str(250 - 248 + 1_u16)
-            .try_map(u16::from_str)
-            .context(Label("tng")),
-        mnc: take_str(252 - 251 + 1_u16)
-            .try_map(u16::from_str)
-            .context(Label("mnc")),
-        mnr: take_str(254 - 253 + 1_u16)
-            .try_map(u16::from_str)
-            .context(Label("mnr")),
-        tcs: be_u8.try_map(TimeCodeStatus::parse).context(Label("tcs")),
-        tcp: take(263 - 256 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tcp")),
-        tcf: take(271 - 264 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("tcf")),
-        tnd: take_str(1_u16)
-            .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
-            .context(Label("tnd")),
-        dsn: take_str(1_u16)
-            .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
-            .context(Label("dns")),
-        co: take(276 - 274 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("co")),
-        pub_: take(308 - 277 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("pub_")),
-        en: take(340 - 309 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("en")),
-        ecd: take(372 - 341 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("ecd")),
-        _spare: take(447 - 373 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("_spare")),
-        uda: take(1023 - 448 + 1_u16)
-            .try_map(|data| coding.decode(data))
-            .context(Label("uda")),
+        .map_err(|err| ErrMode::from_external_error(&input, err))?;
+
+    let coding =
+        CodePageCodec::new(codepage).map_err(|err| ErrMode::from_external_error(&input, err))?;
+
+    let dfc = take_str(10 - 3 + 1_u16)
+        .try_map(DiskFormatCode::parse)
+        .context(Label("dfc"))
+        .parse_next(input)?;
+
+    let dsc = be_u8
+        .try_map(DisplayStandardCode::parse)
+        .context(Label("dsc"))
+        .parse_next(input)?;
+
+    let cct = take(13 - 12 + 1_u16)
+        .try_map(CharacterCodeTable::parse)
+        .context(Label("cct"))
+        .parse_next(input)?;
+
+    let lc = take(15 - 14 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("lc"))
+        .parse_next(input)?;
+
+    let opt = take(47 - 16 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("opt"))
+        .parse_next(input)?;
+
+    let oet = take(79 - 48 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("oet"))
+        .parse_next(input)?;
+
+    let tpt = take(111 - 80 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tpt"))
+        .parse_next(input)?;
+
+    let tet = take(143 - 112 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tet"))
+        .parse_next(input)?;
+
+    let tn = take(175 - 144 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tn"))
+        .parse_next(input)?;
+
+    let tcd = take(207 - 176 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tcd"))
+        .parse_next(input)?;
+
+    let slr = take(223 - 208 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("slr"))
+        .parse_next(input)?;
+
+    let cd = take(229 - 224 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("cd"))
+        .parse_next(input)?;
+
+    let rd = take(235 - 230 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("rd"))
+        .parse_next(input)?;
+
+    let rn = take(237 - 236 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("rn"))
+        .parse_next(input)?;
+
+    let tnb = take_str(242 - 238 + 1_u16)
+        .try_map(u16::from_str)
+        .context(Label("tnb"))
+        .parse_next(input)?;
+
+    let tns = take_str(247 - 243 + 1_u16)
+        .try_map(u16::from_str)
+        .context(Label("tns"))
+        .parse_next(input)?;
+
+    let tng = take_str(250 - 248 + 1_u16)
+        .try_map(u16::from_str)
+        .context(Label("tng"))
+        .parse_next(input)?;
+
+    let mnc = take_str(252 - 251 + 1_u16)
+        .try_map(u16::from_str)
+        .context(Label("mnc"))
+        .parse_next(input)?;
+
+    let mnr = take_str(254 - 253 + 1_u16)
+        .try_map(u16::from_str)
+        .context(Label("mnr"))
+        .parse_next(input)?;
+
+    let tcs = be_u8
+        .try_map(TimeCodeStatus::parse)
+        .context(Label("tcs"))
+        .parse_next(input)?;
+
+    let tcp = take(263 - 256 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tcp"))
+        .parse_next(input)?;
+
+    let tcf = take(271 - 264 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("tcf"))
+        .parse_next(input)?;
+
+    let tnd = take_str(1_u16)
+        .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
+        .context(Label("tnd"))
+        .parse_next(input)?;
+
+    let dsn = take_str(1_u16)
+        .try_map(|data| u8_from_str_with_default_if_blank(data, 1))
+        .context(Label("dns"))
+        .parse_next(input)?;
+
+    let co = take(276 - 274 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("co"))
+        .parse_next(input)?;
+
+    let pub_ = take(308 - 277 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("pub_"))
+        .parse_next(input)?;
+
+    let en = take(340 - 309 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("en"))
+        .parse_next(input)?;
+
+    let ecd = take(372 - 341 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("ecd"))
+        .parse_next(input)?;
+
+    let _spare = take(447 - 373 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("_spare"))
+        .parse_next(input)?;
+
+    let uda = take(1023 - 448 + 1_u16)
+        .try_map(|data| coding.decode(data))
+        .context(Label("uda"))
+        .parse_next(input)?;
+
+    Ok(GsiBlock {
+        cpn,
+        dfc,
+        dsc,
+        cct,
+        lc,
+        opt,
+        oet,
+        tpt,
+        tet,
+        tn,
+        tcd,
+        slr,
+        cd,
+        rd,
+        rn,
+        tnb,
+        tns,
+        tng,
+        mnc,
+        mnr,
+        tcs,
+        tcp,
+        tcf,
+        tnd,
+        dsn,
+        co,
+        pub_,
+        en,
+        ecd,
+        _spare,
+        uda,
     })
-    .context(Label("GsiBlock"))
-    .parse_next(input)
 }
 
-fn parse_time(input: &mut &[u8]) -> PResult<Time> {
+fn parse_time(input: &mut &[u8]) -> ModalResult<Time> {
     seq!(Time {
         hours: be_u8.context(Label("hours")),
         minutes: be_u8.context(Label("minutes")),
@@ -222,12 +313,14 @@ fn parse_time(input: &mut &[u8]) -> PResult<Time> {
 }
 
 #[inline(always)]
-fn parse_tti_block<'a>(cct: CharacterCodeTable) -> impl Parser<&'a [u8], TtiBlock, ContextError> {
+fn parse_tti_block<'a>(
+    cct: CharacterCodeTable,
+) -> impl ModalParser<&'a [u8], TtiBlock, ContextError> {
     move |input: &mut &'a [u8]| {
         if input.is_empty() {
-            return Err(ErrMode::Backtrack(
-                winnow::error::ParserError::from_error_kind(input, winnow::error::ErrorKind::Eof),
-            ));
+            return Err(ErrMode::Backtrack(winnow::error::ParserError::from_input(
+                input,
+            )));
         }
 
         seq!(TtiBlock {
