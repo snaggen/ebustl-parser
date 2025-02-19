@@ -5,6 +5,7 @@ use std::str;
 use std::{fmt, path::Path};
 
 use codepage_strings::Coding;
+use jiff::Zoned;
 use textcode::{iso6937, iso8859_5, iso8859_6, iso8859_7, iso8859_8};
 pub mod parser;
 use crate::parser::parse_stl_from_slice;
@@ -472,8 +473,8 @@ fn push_encoded_string(
 
 impl GsiBlock {
     pub fn new() -> GsiBlock {
-        let date = chrono::Local::now();
-        let now = date.format("%y%m%d").to_string();
+        let date = Zoned::now();
+        let now = date.strftime("%y%m%d").to_string();
         GsiBlock {
             cpn: CodePageNumber::CPN_850,
             dfc: DiskFormatCode::STL25_01,

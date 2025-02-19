@@ -12,7 +12,7 @@ categories = ["multimedia::video", "parser-implementations"]
 edition = "2021"
 
 [dependencies]
-chrono = "0.4"
+jiff = "0.2"
 thiserror = "2"                                                               
 codepage-strings = "1.0.2"
 textcode = "0.2.2"
