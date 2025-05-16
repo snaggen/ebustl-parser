@@ -8,8 +8,8 @@ use codepage_strings::Coding;
 use jiff::Zoned;
 use textcode::{iso6937, iso8859_5, iso8859_6, iso8859_7, iso8859_8};
 pub mod parser;
-use crate::parser::parse_stl_from_slice;
 pub use crate::parser::ParseError;
+use crate::parser::parse_stl_from_slice;
 
 /// A representation of a STL File
 /// See the [Spec](https://tech.ebu.ch/docs/tech/tech3264.pdf) for details

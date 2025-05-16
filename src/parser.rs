@@ -3,14 +3,13 @@ use std::{num::ParseIntError, str::FromStr};
 use codepage_strings::ConvertError;
 use thiserror::Error;
 use winnow::{
-    self,
+    self, ModalParser, ModalResult, Parser,
     binary::{be_u8, le_u16},
     combinator::{repeat, trace},
     error::{ContextError, ErrMode, FromExternalError, ParserError, StrContext::Label},
     seq,
     stream::ToUsize,
     token::take,
-    ModalParser, ModalResult, Parser,
 };
 
 use super::*;

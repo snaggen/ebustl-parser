@@ -9,7 +9,7 @@ repository = "https://github.com/snaggen/ebustl-parser"
 readme = "README.md"
 keywords = ["stl", "subtitle", "parser"]
 categories = ["multimedia::video", "parser-implementations"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 jiff = "0.2"
