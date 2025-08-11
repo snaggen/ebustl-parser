@@ -1,6 +1,6 @@
 [package]
 name = "ebustl-parser"
-version = "0.6.2"
+version = "0.6.3"
 description = "Parse subtitle files in the EBU-STL format with Rust."
 authors = ["Mattias Eriksson <snaggen@mayam.com>", "Christophe Augier <christophe.augier@gmail.com>"]
 license = "EUPL-1.2"
