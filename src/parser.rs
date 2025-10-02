@@ -4,7 +4,7 @@ use codepage_strings::ConvertError;
 use thiserror::Error;
 use winnow::{
     self, ModalParser, ModalResult, Parser,
-    binary::{be_u8, le_u16},
+    binary::{le_u8, le_u16},
     combinator::{repeat, trace},
     error::{ContextError, ErrMode, FromExternalError, ParserError, StrContext::Label},
     seq,
@@ -120,7 +120,7 @@ fn parse_gsi_block(input: &mut &[u8]) -> ModalResult<GsiBlock> {
         .context(Label("dfc"))
         .parse_next(input)?;
 
-    let dsc = be_u8
+    let dsc = le_u8
         .try_map(DisplayStandardCode::parse)
         .context(Label("dsc"))
         .parse_next(input)?;
@@ -210,7 +210,7 @@ fn parse_gsi_block(input: &mut &[u8]) -> ModalResult<GsiBlock> {
         .context(Label("mnr"))
         .parse_next(input)?;
 
-    let tcs = be_u8
+    let tcs = le_u8
         .try_map(TimeCodeStatus::parse)
         .context(Label("tcs"))
         .parse_next(input)?;
@@ -302,10 +302,10 @@ fn parse_gsi_block(input: &mut &[u8]) -> ModalResult<GsiBlock> {
 
 fn parse_time(input: &mut &[u8]) -> ModalResult<Time> {
     seq!(Time {
-        hours: be_u8.context(Label("hours")),
-        minutes: be_u8.context(Label("minutes")),
-        seconds: be_u8.context(Label("seconds")),
-        frames: be_u8.context(Label("frames")),
+        hours: le_u8.context(Label("hours")),
+        minutes: le_u8.context(Label("minutes")),
+        seconds: le_u8.context(Label("seconds")),
+        frames: le_u8.context(Label("frames")),
     })
     .context(Label("Time"))
     .parse_next(input)
@@ -323,15 +323,15 @@ fn parse_tti_block<'a>(
         }
 
         seq!(TtiBlock {
-            sgn: be_u8.context(Label("sgn")),
+            sgn: le_u8.context(Label("sgn")),
             sn: le_u16.context(Label("sn")),
-            ebn: be_u8.context(Label("ebn")),
-            cs: be_u8.try_map(CumulativeStatus::parse).context(Label("cs")),
+            ebn: le_u8.context(Label("ebn")),
+            cs: le_u8.try_map(CumulativeStatus::parse).context(Label("cs")),
             tci: parse_time.context(Label("tci")),
             tco: parse_time.context(Label("tco")),
-            vp: be_u8.context(Label("vp")),
-            jc: be_u8.context(Label("jc")),
-            cf: be_u8.context(Label("cf")),
+            vp: le_u8.context(Label("vp")),
+            jc: le_u8.context(Label("jc")),
+            cf: le_u8.context(Label("cf")),
             tf: take(112_u16)
                 .map(|a: &[u8]| a.to_vec())
                 .context(Label("tf")),
